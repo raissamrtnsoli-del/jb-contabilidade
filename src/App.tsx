@@ -15,6 +15,7 @@ import {
   FileText,
   ChevronRight,
 } from "lucide-react";
+import "./App.css";
 
 const WHATSAPP_NUMBER = "5534988374643";
 const WHATSAPP_URL = `https://wa.me/${WHATSAPP_NUMBER}`;
