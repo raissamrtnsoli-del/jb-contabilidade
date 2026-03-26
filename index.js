@@ -3,227 +3,394 @@
 Object.defineProperty(exports, "__esModule", {
   value: true
 });
-Object.defineProperty(exports, "TargetNames", {
+Object.defineProperty(exports, "buildDynamicImport", {
   enumerable: true,
   get: function () {
-    return _options.TargetNames;
+    return _dynamicImport.buildDynamicImport;
   }
 });
-exports.default = getTargets;
-Object.defineProperty(exports, "filterItems", {
+exports.buildNamespaceInitStatements = buildNamespaceInitStatements;
+exports.ensureStatementsHoisted = ensureStatementsHoisted;
+Object.defineProperty(exports, "getModuleName", {
   enumerable: true,
   get: function () {
-    return _filterItems.default;
+    return _getModuleName.default;
   }
 });
-Object.defineProperty(exports, "getInclusionReasons", {
+Object.defineProperty(exports, "hasExports", {
   enumerable: true,
   get: function () {
-    return _debug.getInclusionReasons;
+    return _normalizeAndLoadMetadata.hasExports;
   }
 });
-exports.isBrowsersQueryValid = isBrowsersQueryValid;
-Object.defineProperty(exports, "isRequired", {
+Object.defineProperty(exports, "isModule", {
   enumerable: true,
   get: function () {
-    return _filterItems.isRequired;
+    return _helperModuleImports.isModule;
   }
 });
-Object.defineProperty(exports, "prettifyTargets", {
+Object.defineProperty(exports, "isSideEffectImport", {
   enumerable: true,
   get: function () {
-    return _pretty.prettifyTargets;
+    return _normalizeAndLoadMetadata.isSideEffectImport;
   }
 });
-Object.defineProperty(exports, "unreleasedLabels", {
+exports.rewriteModuleStatementsAndPrepareHeader = rewriteModuleStatementsAndPrepareHeader;
+Object.defineProperty(exports, "rewriteThis", {
   enumerable: true,
   get: function () {
-    return _targets.unreleasedLabels;
+    return _rewriteThis.default;
   }
 });
-var _browserslist = require("browserslist");
-var _helperValidatorOption = require("@babel/helper-validator-option");
-var _lruCache = require("lru-cache");
-var _utils = require("./utils.js");
-var _targets = require("./targets.js");
-var _options = require("./options.js");
-var _pretty = require("./pretty.js");
-var _debug = require("./debug.js");
-var _filterItems = require("./filter-items.js");
-const browserModulesData = require("@babel/compat-data/native-modules");
-const ESM_SUPPORT = browserModulesData["es6.module"];
-const v = new _helperValidatorOption.OptionValidator("@babel/helper-compilation-targets");
-function validateTargetNames(targets) {
-  const validTargets = Object.keys(_options.TargetNames);
-  for (const target of Object.keys(targets)) {
-    if (!(target in _options.TargetNames)) {
-      throw new Error(v.formatMessage(`'${target}' is not a valid target
-- Did you mean '${(0, _helperValidatorOption.findSuggestion)(target, validTargets)}'?`));
-    }
-  }
-  return targets;
-}
-function isBrowsersQueryValid(browsers) {
-  return typeof browsers === "string" || Array.isArray(browsers) && browsers.every(b => typeof b === "string");
-}
-function validateBrowsers(browsers) {
-  v.invariant(browsers === undefined || isBrowsersQueryValid(browsers), `'${String(browsers)}' is not a valid browserslist query`);
-  return browsers;
-}
-function getLowestVersions(browsers) {
-  return browsers.reduce((all, browser) => {
-    const [browserName, browserVersion] = browser.split(" ");
-    const target = _targets.browserNameMap[browserName];
-    if (!target) {
-      return all;
-    }
-    try {
-      const splitVersion = browserVersion.split("-")[0].toLowerCase();
-      const isSplitUnreleased = (0, _utils.isUnreleasedVersion)(splitVersion, target);
-      if (!all[target]) {
-        all[target] = isSplitUnreleased ? splitVersion : (0, _utils.semverify)(splitVersion);
-        return all;
-      }
-      const version = all[target];
-      const isUnreleased = (0, _utils.isUnreleasedVersion)(version, target);
-      if (isUnreleased && isSplitUnreleased) {
-        all[target] = (0, _utils.getLowestUnreleased)(version, splitVersion, target);
-      } else if (isUnreleased) {
-        all[target] = (0, _utils.semverify)(splitVersion);
-      } else if (!isUnreleased && !isSplitUnreleased) {
-        const parsedBrowserVersion = (0, _utils.semverify)(splitVersion);
-        all[target] = (0, _utils.semverMin)(version, parsedBrowserVersion);
-      }
-    } catch (_) {}
-    return all;
-  }, {});
-}
-function outputDecimalWarning(decimalTargets) {
-  if (!decimalTargets.length) {
-    return;
-  }
-  console.warn("Warning, the following targets are using a decimal version:\n");
-  decimalTargets.forEach(({
-    target,
-    value
-  }) => console.warn(`  ${target}: ${value}`));
-  console.warn(`
-We recommend using a string for minor/patch versions to avoid numbers like 6.10
-getting parsed as 6.1, which can lead to unexpected behavior.
-`);
-}
-function semverifyTarget(target, value) {
-  try {
-    return (0, _utils.semverify)(value);
-  } catch (_) {
-    throw new Error(v.formatMessage(`'${value}' is not a valid value for 'targets.${target}'.`));
-  }
-}
-function nodeTargetParser(value) {
-  const parsed = value === true || value === "current" ? process.versions.node.split("-")[0] : semverifyTarget("node", value);
-  return ["node", parsed];
-}
-function defaultTargetParser(target, value) {
-  const version = (0, _utils.isUnreleasedVersion)(value, target) ? value.toLowerCase() : semverifyTarget(target, value);
-  return [target, version];
-}
-function generateTargets(inputTargets) {
-  const input = Object.assign({}, inputTargets);
-  delete input.esmodules;
-  delete input.browsers;
-  return input;
-}
-function resolveTargets(queries, env) {
-  const resolved = _browserslist(queries, {
-    mobileToDesktop: true,
-    env
+exports.wrapInterop = wrapInterop;
+var _assert = require("assert");
+var _core = require("@babel/core");
+var _helperModuleImports = require("@babel/helper-module-imports");
+var _rewriteThis = require("./rewrite-this.js");
+var _rewriteLiveReferences = require("./rewrite-live-references.js");
+var _normalizeAndLoadMetadata = require("./normalize-and-load-metadata.js");
+var Lazy = require("./lazy-modules.js");
+var _dynamicImport = require("./dynamic-import.js");
+var _getModuleName = require("./get-module-name.js");
+exports.getDynamicImportSource = require("./dynamic-import").getDynamicImportSource;
+function rewriteModuleStatementsAndPrepareHeader(path, {
+  exportName,
+  strict,
+  allowTopLevelThis,
+  strictMode,
+  noInterop,
+  importInterop = noInterop ? "none" : "babel",
+  lazy,
+  getWrapperPayload = Lazy.toGetWrapperPayload(lazy != null ? lazy : false),
+  wrapReference = Lazy.wrapReference,
+  esNamespaceOnly,
+  filename,
+  constantReexports = arguments[1].loose,
+  enumerableModuleMeta = arguments[1].loose,
+  noIncompleteNsImportDetection
+}) {
+  (0, _normalizeAndLoadMetadata.validateImportInteropOption)(importInterop);
+  _assert((0, _helperModuleImports.isModule)(path), "Cannot process module statements in a script");
+  path.node.sourceType = "script";
+  const meta = (0, _normalizeAndLoadMetadata.default)(path, exportName, {
+    importInterop,
+    initializeReexports: constantReexports,
+    getWrapperPayload,
+    esNamespaceOnly,
+    filename
   });
-  return getLowestVersions(resolved);
-}
-const targetsCache = new _lruCache({
-  max: 64
-});
-function resolveTargetsCached(queries, env) {
-  const cacheKey = typeof queries === "string" ? queries : queries.join() + env;
-  let cached = targetsCache.get(cacheKey);
-  if (!cached) {
-    cached = resolveTargets(queries, env);
-    targetsCache.set(cacheKey, cached);
+  if (!allowTopLevelThis) {
+    (0, _rewriteThis.default)(path);
   }
-  return Object.assign({}, cached);
+  (0, _rewriteLiveReferences.default)(path, meta, wrapReference);
+  if (strictMode !== false) {
+    const hasStrict = path.node.directives.some(directive => {
+      return directive.value.value === "use strict";
+    });
+    if (!hasStrict) {
+      path.unshiftContainer("directives", _core.types.directive(_core.types.directiveLiteral("use strict")));
+    }
+  }
+  const headers = [];
+  if ((0, _normalizeAndLoadMetadata.hasExports)(meta) && !strict) {
+    headers.push(buildESModuleHeader(meta, enumerableModuleMeta));
+  }
+  const nameList = buildExportNameListDeclaration(path, meta);
+  if (nameList) {
+    meta.exportNameListName = nameList.name;
+    headers.push(nameList.statement);
+  }
+  headers.push(...buildExportInitializationStatements(path, meta, wrapReference, constantReexports, noIncompleteNsImportDetection));
+  return {
+    meta,
+    headers
+  };
 }
-function getTargets(inputTargets = {}, options = {}) {
-  var _browsers, _browsers2;
-  let {
-    browsers,
-    esmodules
-  } = inputTargets;
+function ensureStatementsHoisted(statements) {
+  statements.forEach(header => {
+    header._blockHoist = 3;
+  });
+}
+function wrapInterop(programPath, expr, type) {
+  if (type === "none") {
+    return null;
+  }
+  if (type === "node-namespace") {
+    return _core.types.callExpression(programPath.hub.addHelper("interopRequireWildcard"), [expr, _core.types.booleanLiteral(true)]);
+  } else if (type === "node-default") {
+    return null;
+  }
+  let helper;
+  if (type === "default") {
+    helper = "interopRequireDefault";
+  } else if (type === "namespace") {
+    helper = "interopRequireWildcard";
+  } else {
+    throw new Error(`Unknown interop: ${type}`);
+  }
+  return _core.types.callExpression(programPath.hub.addHelper(helper), [expr]);
+}
+function buildNamespaceInitStatements(metadata, sourceMetadata, constantReexports = false, wrapReference = Lazy.wrapReference) {
+  var _wrapReference;
+  const statements = [];
+  const srcNamespaceId = _core.types.identifier(sourceMetadata.name);
+  for (const localName of sourceMetadata.importsNamespace) {
+    if (localName === sourceMetadata.name) continue;
+    statements.push(_core.template.statement`var NAME = SOURCE;`({
+      NAME: localName,
+      SOURCE: _core.types.cloneNode(srcNamespaceId)
+    }));
+  }
+  const srcNamespace = (_wrapReference = wrapReference(srcNamespaceId, sourceMetadata.wrap)) != null ? _wrapReference : srcNamespaceId;
+  if (constantReexports) {
+    statements.push(...buildReexportsFromMeta(metadata, sourceMetadata, true, wrapReference));
+  }
+  for (const exportName of sourceMetadata.reexportNamespace) {
+    statements.push((!_core.types.isIdentifier(srcNamespace) ? _core.template.statement`
+            Object.defineProperty(EXPORTS, "NAME", {
+              enumerable: true,
+              get: function() {
+                return NAMESPACE;
+              }
+            });
+          ` : _core.template.statement`EXPORTS.NAME = NAMESPACE;`)({
+      EXPORTS: metadata.exportName,
+      NAME: exportName,
+      NAMESPACE: _core.types.cloneNode(srcNamespace)
+    }));
+  }
+  if (sourceMetadata.reexportAll) {
+    const statement = buildNamespaceReexport(metadata, _core.types.cloneNode(srcNamespace), constantReexports);
+    statement.loc = sourceMetadata.reexportAll.loc;
+    statements.push(statement);
+  }
+  return statements;
+}
+const ReexportTemplate = {
+  constant: ({
+    exports,
+    exportName,
+    namespaceImport
+  }) => _core.template.statement.ast`
+      ${exports}.${exportName} = ${namespaceImport};
+    `,
+  constantComputed: ({
+    exports,
+    exportName,
+    namespaceImport
+  }) => _core.template.statement.ast`
+      ${exports}["${exportName}"] = ${namespaceImport};
+    `,
+  spec: ({
+    exports,
+    exportName,
+    namespaceImport
+  }) => _core.template.statement.ast`
+      Object.defineProperty(${exports}, "${exportName}", {
+        enumerable: true,
+        get: function() {
+          return ${namespaceImport};
+        },
+      });
+    `
+};
+function buildReexportsFromMeta(meta, metadata, constantReexports, wrapReference) {
+  var _wrapReference2;
+  let namespace = _core.types.identifier(metadata.name);
+  namespace = (_wrapReference2 = wrapReference(namespace, metadata.wrap)) != null ? _wrapReference2 : namespace;
   const {
-    configPath = ".",
-    onBrowserslistConfigFound
-  } = options;
-  validateBrowsers(browsers);
-  const input = generateTargets(inputTargets);
-  let targets = validateTargetNames(input);
-  const shouldParseBrowsers = !!browsers;
-  const hasTargets = shouldParseBrowsers || Object.keys(targets).length > 0;
-  const shouldSearchForConfig = !options.ignoreBrowserslistConfig && !hasTargets;
-  if (!browsers && shouldSearchForConfig) {
-    browsers = process.env.BROWSERSLIST;
-    if (!browsers) {
-      const configFile = options.configFile || process.env.BROWSERSLIST_CONFIG || _browserslist.findConfigFile(configPath);
-      if (configFile != null) {
-        onBrowserslistConfigFound == null || onBrowserslistConfigFound(configFile);
-        browsers = _browserslist.loadConfig({
-          config: configFile,
-          env: options.browserslistEnv
+    stringSpecifiers
+  } = meta;
+  return Array.from(metadata.reexports, ([exportName, importName]) => {
+    let namespaceImport = _core.types.cloneNode(namespace);
+    if (importName === "default" && metadata.interop === "node-default") {} else if (stringSpecifiers.has(importName)) {
+      namespaceImport = _core.types.memberExpression(namespaceImport, _core.types.stringLiteral(importName), true);
+    } else {
+      namespaceImport = _core.types.memberExpression(namespaceImport, _core.types.identifier(importName));
+    }
+    const astNodes = {
+      exports: meta.exportName,
+      exportName,
+      namespaceImport
+    };
+    if (constantReexports || _core.types.isIdentifier(namespaceImport)) {
+      if (stringSpecifiers.has(exportName)) {
+        return ReexportTemplate.constantComputed(astNodes);
+      } else {
+        return ReexportTemplate.constant(astNodes);
+      }
+    } else {
+      return ReexportTemplate.spec(astNodes);
+    }
+  });
+}
+function buildESModuleHeader(metadata, enumerableModuleMeta = false) {
+  return (enumerableModuleMeta ? _core.template.statement`
+        EXPORTS.__esModule = true;
+      ` : _core.template.statement`
+        Object.defineProperty(EXPORTS, "__esModule", {
+          value: true,
         });
+      `)({
+    EXPORTS: metadata.exportName
+  });
+}
+function buildNamespaceReexport(metadata, namespace, constantReexports) {
+  return (constantReexports ? _core.template.statement`
+        Object.keys(NAMESPACE).forEach(function(key) {
+          if (key === "default" || key === "__esModule") return;
+          VERIFY_NAME_LIST;
+          if (key in EXPORTS && EXPORTS[key] === NAMESPACE[key]) return;
+
+          EXPORTS[key] = NAMESPACE[key];
+        });
+      ` : _core.template.statement`
+        Object.keys(NAMESPACE).forEach(function(key) {
+          if (key === "default" || key === "__esModule") return;
+          VERIFY_NAME_LIST;
+          if (key in EXPORTS && EXPORTS[key] === NAMESPACE[key]) return;
+
+          Object.defineProperty(EXPORTS, key, {
+            enumerable: true,
+            get: function() {
+              return NAMESPACE[key];
+            },
+          });
+        });
+    `)({
+    NAMESPACE: namespace,
+    EXPORTS: metadata.exportName,
+    VERIFY_NAME_LIST: metadata.exportNameListName ? (0, _core.template)`
+            if (Object.prototype.hasOwnProperty.call(EXPORTS_LIST, key)) return;
+          `({
+      EXPORTS_LIST: metadata.exportNameListName
+    }) : null
+  });
+}
+function buildExportNameListDeclaration(programPath, metadata) {
+  const exportedVars = Object.create(null);
+  for (const data of metadata.local.values()) {
+    for (const name of data.names) {
+      exportedVars[name] = true;
+    }
+  }
+  let hasReexport = false;
+  for (const data of metadata.source.values()) {
+    for (const exportName of data.reexports.keys()) {
+      exportedVars[exportName] = true;
+    }
+    for (const exportName of data.reexportNamespace) {
+      exportedVars[exportName] = true;
+    }
+    hasReexport = hasReexport || !!data.reexportAll;
+  }
+  if (!hasReexport || Object.keys(exportedVars).length === 0) return null;
+  const name = programPath.scope.generateUidIdentifier("exportNames");
+  delete exportedVars.default;
+  return {
+    name: name.name,
+    statement: _core.types.variableDeclaration("var", [_core.types.variableDeclarator(name, _core.types.valueToNode(exportedVars))])
+  };
+}
+function buildExportInitializationStatements(programPath, metadata, wrapReference, constantReexports = false, noIncompleteNsImportDetection = false) {
+  const initStatements = [];
+  for (const [localName, data] of metadata.local) {
+    if (data.kind === "import") {} else if (data.kind === "hoisted") {
+      initStatements.push([data.names[0], buildInitStatement(metadata, data.names, _core.types.identifier(localName))]);
+    } else if (!noIncompleteNsImportDetection) {
+      for (const exportName of data.names) {
+        initStatements.push([exportName, null]);
       }
     }
-    if (browsers == null) {
-      browsers = [];
+  }
+  for (const data of metadata.source.values()) {
+    if (!constantReexports) {
+      const reexportsStatements = buildReexportsFromMeta(metadata, data, false, wrapReference);
+      const reexports = [...data.reexports.keys()];
+      for (let i = 0; i < reexportsStatements.length; i++) {
+        initStatements.push([reexports[i], reexportsStatements[i]]);
+      }
+    }
+    if (!noIncompleteNsImportDetection) {
+      for (const exportName of data.reexportNamespace) {
+        initStatements.push([exportName, null]);
+      }
     }
   }
-  if (esmodules && (esmodules !== "intersect" || !((_browsers = browsers) != null && _browsers.length))) {
-    browsers = Object.keys(ESM_SUPPORT).map(browser => `${browser} >= ${ESM_SUPPORT[browser]}`).join(", ");
-    esmodules = false;
-  }
-  if ((_browsers2 = browsers) != null && _browsers2.length) {
-    const queryBrowsers = resolveTargetsCached(browsers, options.browserslistEnv);
-    if (esmodules === "intersect") {
-      for (const browser of Object.keys(queryBrowsers)) {
-        if (browser !== "deno" && browser !== "ie") {
-          const esmSupportVersion = ESM_SUPPORT[browser === "opera_mobile" ? "op_mob" : browser];
-          if (esmSupportVersion) {
-            const version = queryBrowsers[browser];
-            queryBrowsers[browser] = (0, _utils.getHighestUnreleased)(version, (0, _utils.semverify)(esmSupportVersion), browser);
-          } else {
-            delete queryBrowsers[browser];
+  initStatements.sort(([a], [b]) => {
+    if (a < b) return -1;
+    if (b < a) return 1;
+    return 0;
+  });
+  const results = [];
+  if (noIncompleteNsImportDetection) {
+    for (const [, initStatement] of initStatements) {
+      results.push(initStatement);
+    }
+  } else {
+    const chunkSize = 100;
+    for (let i = 0; i < initStatements.length; i += chunkSize) {
+      let uninitializedExportNames = [];
+      for (let j = 0; j < chunkSize && i + j < initStatements.length; j++) {
+        const [exportName, initStatement] = initStatements[i + j];
+        if (initStatement !== null) {
+          if (uninitializedExportNames.length > 0) {
+            results.push(buildInitStatement(metadata, uninitializedExportNames, programPath.scope.buildUndefinedNode()));
+            uninitializedExportNames = [];
           }
+          results.push(initStatement);
         } else {
-          delete queryBrowsers[browser];
+          uninitializedExportNames.push(exportName);
         }
       }
-    }
-    targets = Object.assign(queryBrowsers, targets);
-  }
-  const result = {};
-  const decimalWarnings = [];
-  for (const target of Object.keys(targets).sort()) {
-    const value = targets[target];
-    if (typeof value === "number" && value % 1 !== 0) {
-      decimalWarnings.push({
-        target,
-        value
-      });
-    }
-    const [parsedTarget, parsedValue] = target === "node" ? nodeTargetParser(value) : defaultTargetParser(target, value);
-    if (parsedValue) {
-      result[parsedTarget] = parsedValue;
+      if (uninitializedExportNames.length > 0) {
+        results.push(buildInitStatement(metadata, uninitializedExportNames, programPath.scope.buildUndefinedNode()));
+      }
     }
   }
-  outputDecimalWarning(decimalWarnings);
-  return result;
+  return results;
+}
+const InitTemplate = {
+  computed: ({
+    exports,
+    name,
+    value
+  }) => _core.template.expression.ast`${exports}["${name}"] = ${value}`,
+  default: ({
+    exports,
+    name,
+    value
+  }) => _core.template.expression.ast`${exports}.${name} = ${value}`,
+  define: ({
+    exports,
+    name,
+    value
+  }) => _core.template.expression.ast`
+      Object.defineProperty(${exports}, "${name}", {
+        enumerable: true,
+        value: void 0,
+        writable: true
+      })["${name}"] = ${value}`
+};
+function buildInitStatement(metadata, exportNames, initExpr) {
+  const {
+    stringSpecifiers,
+    exportName: exports
+  } = metadata;
+  return _core.types.expressionStatement(exportNames.reduce((value, name) => {
+    const params = {
+      exports,
+      name,
+      value
+    };
+    if (name === "__proto__") {
+      return InitTemplate.define(params);
+    }
+    if (stringSpecifiers.has(name)) {
+      return InitTemplate.computed(params);
+    }
+    return InitTemplate.default(params);
+  }, initExpr));
 }
 
 //# sourceMappingURL=index.js.map
