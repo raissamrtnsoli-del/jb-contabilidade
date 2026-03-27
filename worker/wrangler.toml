@@ -1,0 +1,20 @@
+[name]
+name = "jb-contabilidade-ai"
+
+[compatibility_date]
+compatibility_date = "2026-03-27"
+
+[vars]
+# Troque por seu provedor. Opção comum:
+# - "openai" (OpenAI) com OPENAI_API_KEY
+# - "openrouter" com OPENROUTER_API_KEY
+AI_PROVIDER = "openai"
+AI_MODEL = "gpt-4o-mini"
+
+# Para expor em prod, ajuste seu domínio. Em dev, funciona local.
+ALLOWED_ORIGIN = "*"
+
+[[rules]]
+type = "ESModule"
+globs = ["**/*.ts"]
+

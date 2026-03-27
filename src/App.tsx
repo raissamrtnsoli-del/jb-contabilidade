@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import {
   Building2,
   Receipt,
@@ -23,17 +23,66 @@ const INSTAGRAM_URL = "https://instagram.com/jbassessoria_contabil";
 const EMAIL = "jbcontabilidade23@gmail.com";
 const PHONE = "(34) 98837-4643";
 const ACCENT = "#2a9d8f";
+const BRAND_DARK = "#043a49";
+const HOME_BG = "#fffef7";
+
+// Config (Vite): defina no deploy (GitHub Pages/Netlify/Vercel):
+// - VITE_AI_API_BASE="https://seu-backend.com"   (Cloudflare Worker / Vercel / etc.)
+// - VITE_GITHUB_LOGO_LIGHT_URL / VITE_GITHUB_LOGO_DARK_URL (logo por URL — pode ser raw do GitHub)
+const AI_API_BASE: string = (import.meta as any).env?.VITE_AI_API_BASE || "";
+
+const GITHUB_LOGO_LIGHT_URL: string = (import.meta as any).env?.VITE_GITHUB_LOGO_LIGHT_URL || "";
+const GITHUB_LOGO_DARK_URL: string = (import.meta as any).env?.VITE_GITHUB_LOGO_DARK_URL || "";
+
+// Config: Web3Forms para enviar direto ao e-mail sem abrir o cliente de e-mail
+// Pegue em: https://web3forms.com
+const WEB3FORMS_ACCESS_KEY: string = (import.meta as any).env?.VITE_WEB3FORMS_ACCESS_KEY || "SUA_CHAVE_WEB3FORMS_AQUI";
+const WEB3FORMS_ENDPOINT = "https://api.web3forms.com/submit";
 
 /* ─── Contact Modal ─────────────────────────────────────────── */
 function ContactModal({ onClose }: { onClose: () => void }) {
   const [form, setForm] = useState({ nome: "", telefone: "", email: "", mensagem: "" });
   const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const body = `Nome: ${form.nome}%0ATelefone: ${form.telefone}%0AE-mail: ${form.email}%0A%0AMensagem:%0A${encodeURIComponent(form.mensagem)}`;
-    window.location.href = `mailto:${EMAIL}?subject=Contato via site – ${encodeURIComponent(form.nome)}&body=${body}`;
-    setSent(true);
+    setError(null);
+
+    // Fallback seguro: se não configurou Web3Forms, usa mailto.
+    const hasWeb3 = WEB3FORMS_ACCESS_KEY && WEB3FORMS_ACCESS_KEY !== "SUA_CHAVE_WEB3FORMS_AQUI";
+    if (!hasWeb3) {
+      const body = `Nome: ${form.nome}%0ATelefone: ${form.telefone}%0AE-mail: ${form.email}%0A%0AMensagem:%0A${encodeURIComponent(form.mensagem)}`;
+      window.location.href = `mailto:${EMAIL}?subject=Contato via site – ${encodeURIComponent(form.nome)}&body=${body}`;
+      setSent(true);
+      return;
+    }
+
+    try {
+      setSending(true);
+      const fd = new FormData();
+      fd.append("access_key", WEB3FORMS_ACCESS_KEY);
+      fd.append("subject", "Novo contato via site JB Contabilidade");
+      fd.append("from_name", "Site JB Contabilidade");
+      fd.append("redirect", "false");
+      fd.append("nome", form.nome);
+      fd.append("telefone", form.telefone);
+      fd.append("email", form.email);
+      fd.append("mensagem", form.mensagem);
+
+      const res = await fetch(WEB3FORMS_ENDPOINT, { method: "POST", body: fd });
+      const json = (await res.json()) as { success?: boolean; message?: string };
+      if (json.success) {
+        setSent(true);
+      } else {
+        setError("Falha no envio. Tente novamente ou fale com a JB pelo WhatsApp.");
+      }
+    } catch {
+      setError("Falha no envio. Verifique sua conexão e tente novamente.");
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -43,9 +92,9 @@ function ContactModal({ onClose }: { onClose: () => void }) {
     >
       <div
         className="relative w-full max-w-lg rounded-[32px] overflow-hidden"
-        style={{ background: "#fffef7", boxShadow: "0 32px 80px rgba(0,0,0,0.3)" }}
+        style={{ background: HOME_BG, boxShadow: "0 32px 80px rgba(0,0,0,0.3)" }}
       >
-        <div className="bg-[#043a49] px-8 pt-8 pb-10 relative overflow-hidden">
+        <div className="px-8 pt-8 pb-10 relative overflow-hidden" style={{ background: BRAND_DARK }}>
           <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full opacity-20" style={{ background: ACCENT }} />
           <button
             onClick={onClose}
@@ -65,10 +114,8 @@ function ContactModal({ onClose }: { onClose: () => void }) {
             <div className="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-5" style={{ background: `${ACCENT}20` }}>
               <Check className="w-8 h-8" style={{ color: ACCENT }} />
             </div>
-            <h3 className="text-[#043a49] font-bold text-xl mb-2">Mensagem preparada!</h3>
-            <p className="text-[#4b5563] text-sm leading-relaxed mb-6">
-              Seu cliente de e-mail foi aberto com as informações preenchidas. Confirme o envio lá.
-            </p>
+            <h3 className="text-[#043a49] font-bold text-xl mb-2">Mensagem enviada!</h3>
+            <p className="text-[#4b5563] text-sm leading-relaxed mb-6">Recebemos sua mensagem e responderemos em breve.</p>
             <button
               onClick={onClose}
               className="text-white rounded-full px-8 py-3 font-semibold text-sm hover:opacity-90 transition-all"
@@ -116,16 +163,26 @@ function ContactModal({ onClose }: { onClose: () => void }) {
               </div>
             </div>
 
+            {error && (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {error}{" "}
+                <a className="underline font-semibold" href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer">
+                  Falar no WhatsApp
+                </a>
+              </div>
+            )}
+
             <button
               type="submit"
-              className="w-full text-white rounded-xl py-4 font-bold text-sm hover:opacity-90 transition-all hover:scale-[1.01] flex items-center justify-center gap-2"
-              style={{ background: ACCENT }}
+              disabled={sending}
+              className="w-full text-white rounded-xl py-4 font-bold text-sm transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed hover:scale-[1.01]"
+              style={{ background: ACCENT, boxShadow: "0 14px 34px rgba(42,157,143,0.35)" }}
             >
-              Enviar mensagem
+              {sending ? "Enviando…" : "Enviar mensagem"}
               <ChevronRight className="w-4 h-4" />
             </button>
             <p className="text-gray-400 text-xs text-center">
-              Seu e-mail será enviado para {EMAIL}
+              {WEB3FORMS_ACCESS_KEY !== "SUA_CHAVE_WEB3FORMS_AQUI" ? "Mensagem enviada diretamente para a JB Contabilidade" : `Seu e-mail será enviado para ${EMAIL}`}
             </p>
           </form>
         )}
@@ -135,7 +192,7 @@ function ContactModal({ onClose }: { onClose: () => void }) {
 }
 
 /* ─── NavBar ─────────────────────────────────────────────────── */
-function NavBar({ onContactClick }: { onContactClick: () => void }) {
+function NavBar() {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -152,45 +209,58 @@ function NavBar({ onContactClick }: { onContactClick: () => void }) {
     { label: "Contato", href: "#cta" },
   ];
 
+  const navDark = scrolled;
+
+  const logoSrc = navDark
+    ? GITHUB_LOGO_DARK_URL || "/__mockup/images/logo-jb-dark.png"
+    : GITHUB_LOGO_LIGHT_URL || "/__mockup/images/logo-jb-dark.png";
+
   return (
-    <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 bg-[#043a49] ${scrolled ? "shadow-lg" : ""}`}>
+    <nav
+      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? "shadow-lg" : ""}`}
+      style={{
+        background: navDark ? BRAND_DARK : HOME_BG,
+        borderBottom: navDark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(15,23,42,0.06)",
+      }}
+    >
       <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
-        <img
-          src="/__mockup/images/logo-jb-dark.png"
-          alt="JB Contabilidade"
-          className="h-16 object-contain"
-          style={{ mixBlendMode: "screen" }}
-        />
+        <div className="flex items-center gap-3">
+          <img src={logoSrc} alt="JB Contabilidade" className="h-14 object-contain" style={{ mixBlendMode: navDark ? ("screen" as const) : ("normal" as const) }} />
+        </div>
         <div className="hidden md:flex items-center gap-8">
           {links.map((l) => (
-            <a key={l.label} href={l.href} className="text-white/70 font-medium hover:text-white transition-colors text-sm tracking-wide">
+            <a
+              key={l.label}
+              href={l.href}
+              className="font-medium transition-colors text-sm tracking-wide"
+              style={{ color: navDark ? "rgba(255,255,255,0.72)" : "rgba(4,58,73,0.8)" }}
+              onMouseEnter={(e) => ((e.currentTarget.style.color = navDark ? "#fff" : BRAND_DARK))}
+              onMouseLeave={(e) => ((e.currentTarget.style.color = navDark ? "rgba(255,255,255,0.72)" : "rgba(4,58,73,0.8)"))}
+            >
               {l.label}
             </a>
           ))}
-          <button
-            onClick={onContactClick}
-            className="border border-white/30 text-white rounded-full px-6 py-2.5 text-sm font-semibold hover:bg-white/10 transition-all hover:scale-105"
-          >
-            Fale Conosco
-          </button>
         </div>
-        <button className="md:hidden text-white/80" onClick={() => setMenuOpen(!menuOpen)}>
+        <button className="md:hidden" style={{ color: navDark ? "rgba(255,255,255,0.85)" : "rgba(4,58,73,0.85)" }} onClick={() => setMenuOpen(!menuOpen)}>
           {menuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
         </button>
       </div>
       {menuOpen && (
-        <div className="md:hidden bg-[#032f3b] border-t border-white/10 px-6 py-4 flex flex-col gap-4">
+        <div
+          className="md:hidden px-6 py-4 flex flex-col gap-4"
+          style={{ background: navDark ? "#032f3b" : HOME_BG, borderTop: navDark ? "1px solid rgba(255,255,255,0.10)" : "1px solid rgba(15,23,42,0.06)" }}
+        >
           {links.map((l) => (
-            <a key={l.label} href={l.href} className="text-white/70 font-medium py-1 hover:text-white transition-colors" onClick={() => setMenuOpen(false)}>
+            <a
+              key={l.label}
+              href={l.href}
+              className="font-medium py-1 transition-colors"
+              style={{ color: navDark ? "rgba(255,255,255,0.72)" : "rgba(4,58,73,0.8)" }}
+              onClick={() => setMenuOpen(false)}
+            >
               {l.label}
             </a>
           ))}
-          <button
-            onClick={() => { setMenuOpen(false); onContactClick(); }}
-            className="border border-white/30 text-white rounded-full px-6 py-2.5 text-sm font-semibold text-center"
-          >
-            Fale Conosco
-          </button>
         </div>
       )}
     </nav>
@@ -200,60 +270,59 @@ function NavBar({ onContactClick }: { onContactClick: () => void }) {
 /* ─── Hero Illustration ──────────────────────────────────────── */
 function HeroIllustration() {
   const testimonials = [
-    { name: "Mariana S.", role: "Empresária · Araxá-MG", text: "Excelente atendimento! A JB resolveu minha situação fiscal rapidamente e com muita atenção.", avatar: "M", color: "#2a9d8f" },
-    { name: "João P.", role: "MEI · Triângulo Mineiro", text: "Profissionais sérios e comprometidos. Finalmente entendo como pagar menos imposto legalmente.", avatar: "J", color: "#043a49" },
-    { name: "Cássia R.", role: "Produtora Rural · MG", text: "Me sinto segura sabendo que minha contabilidade está nas mãos certas. Super recomendo!", avatar: "C", color: "#065a6e" },
+    { name: "Mariana S.", when: "há 2 semanas", text: "Excelente atendimento! Resolveram minha situação fiscal rapidamente e com muita atenção.", avatar: "M" },
+    { name: "João P.", when: "há 1 mês", text: "Profissionais sérios. Finalmente entendi como pagar menos imposto legalmente.", avatar: "J" },
+    { name: "Cássia R.", when: "há 3 meses", text: "Me sinto segura sabendo que minha contabilidade está nas mãos certas.", avatar: "C" },
   ];
 
   return (
     <div className="relative w-full max-w-lg mx-auto select-none">
       <div className="absolute -inset-4 rounded-[48px] blur-3xl opacity-25" style={{ background: `radial-gradient(circle, ${ACCENT} 0%, transparent 70%)` }} />
-      <div className="relative flex flex-col gap-4">
-        <div className="bg-[#043a49] rounded-[32px] p-7 text-white overflow-hidden relative">
-          <div className="absolute top-0 right-0 w-48 h-48 rounded-full opacity-10" style={{ background: ACCENT, transform: "translate(35%, -35%)" }} />
-          <div className="relative z-10 flex items-start gap-5">
-            <div className="w-14 h-14 rounded-2xl bg-white/15 flex items-center justify-center text-2xl flex-shrink-0">🤝</div>
-            <div>
-              <p className="text-white/50 text-xs uppercase tracking-wider mb-1">Nossa missão</p>
-              <p className="text-white font-bold text-lg leading-snug" style={{ letterSpacing: "-0.01em" }}>
-                Contabilidade simples para quem tem uma empresa para crescer.
-              </p>
-            </div>
+      <div className="relative rounded-[32px] overflow-hidden bg-white border border-gray-100" style={{ boxShadow: "0 18px 60px rgba(0,0,0,0.10)" }}>
+        <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: `${ACCENT}18` }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={ACCENT} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 6L9 17l-5-5" />
+            </svg>
           </div>
-          <div className="relative z-10 mt-5 flex items-center gap-2">
-            <div className="flex -space-x-2">
-              {["M", "J", "C", "R"].map((l, i) => (
-                <div key={i} className="w-8 h-8 rounded-full border-2 border-[#043a49] flex items-center justify-center text-xs font-bold text-white" style={{ background: ["#2a9d8f", "#065a6e", "#2a9d8f", "#043a49"][i] }}>
-                  {l}
-                </div>
-              ))}
-            </div>
-            <p className="text-white/60 text-xs ml-1">+200 clientes satisfeitos</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 px-1">
-          <div className="flex-1 h-px bg-gray-200" />
-          <p className="text-gray-400 text-xs font-medium px-2">O que dizem nossos clientes</p>
-          <div className="flex-1 h-px bg-gray-200" />
-        </div>
-        <div className="grid grid-cols-1 gap-3">
-          {testimonials.map((t) => (
-            <div key={t.name} className="bg-white border border-gray-100 rounded-2xl p-5 flex items-start gap-4" style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.04)" }}>
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white flex-shrink-0" style={{ background: t.color }}>
-                {t.avatar}
+          <div className="min-w-0">
+            <p className="text-sm font-bold" style={{ color: BRAND_DARK, letterSpacing: "-0.01em" }}>
+              Avaliações
+            </p>
+            <div className="flex items-center gap-2">
+              <div className="flex gap-0.5">
+                {[...Array(5)].map((_, i) => (
+                  <svg key={i} className="w-4 h-4" viewBox="0 0 24 24" fill="#fbbf24">
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                  </svg>
+                ))}
               </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 mb-1 flex-wrap">
-                  <span className="text-[#043a49] font-semibold text-sm">{t.name}</span>
-                  <span className="text-gray-400 text-xs">{t.role}</span>
+              <span className="text-xs text-gray-500">5,0 • Google</span>
+            </div>
+          </div>
+        </div>
+        <div className="p-6 grid grid-cols-1 gap-4">
+          {testimonials.map((t) => (
+            <div key={t.name} className="rounded-2xl border border-gray-100 p-4" style={{ background: "linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(249,250,251,1) 100%)" }}>
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white flex-shrink-0" style={{ background: BRAND_DARK }}>
+                  {t.avatar}
                 </div>
-                <p className="text-[#4b5563] text-xs leading-relaxed">"{t.text}"</p>
-                <div className="flex gap-0.5 mt-1.5">
-                  {[...Array(5)].map((_, i) => (
-                    <svg key={i} className="w-3 h-3" viewBox="0 0 24 24" fill={ACCENT}>
-                      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                    </svg>
-                  ))}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-semibold" style={{ color: BRAND_DARK }}>
+                      {t.name}
+                    </span>
+                    <span className="text-xs text-gray-400">{t.when}</span>
+                  </div>
+                  <div className="flex gap-0.5 mt-1">
+                    {[...Array(5)].map((_, i) => (
+                      <svg key={i} className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="#fbbf24">
+                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                      </svg>
+                    ))}
+                  </div>
+                  <p className="text-sm text-gray-600 leading-relaxed mt-2">“{t.text}”</p>
                 </div>
               </div>
             </div>
@@ -267,7 +336,7 @@ function HeroIllustration() {
 /* ─── Hero Section ───────────────────────────────────────────── */
 function HeroSection() {
   return (
-    <section id="inicio" className="min-h-screen flex items-center pt-24 pb-16" style={{ background: "#fffef7" }}>
+    <section id="inicio" className="min-h-screen flex items-center pt-24 pb-16" style={{ background: HOME_BG }}>
       <div className="max-w-6xl mx-auto px-6 grid md:grid-cols-2 gap-16 items-center">
         <div>
           <div className="inline-flex items-center gap-2 rounded-full px-4 py-2 mb-8 text-sm font-medium" style={{ background: `${ACCENT}18`, color: ACCENT }}>
@@ -347,9 +416,94 @@ const suggestions = [
   "Quem precisa fazer imposto de renda?",
 ];
 
+type ChatRole = "user" | "assistant";
+type ChatMsg = { id: string; role: ChatRole; content: string };
+
+function safeId() {
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function ChatSection() {
   const [hovered, setHovered] = useState<number | null>(null);
   const [inputValue, setInputValue] = useState("");
+  const [messages, setMessages] = useState<ChatMsg[]>([
+    {
+      id: safeId(),
+      role: "assistant",
+      content: "Olá! Eu sou a JB Assistente. Me diga sua dúvida contábil e eu te respondo agora.",
+    },
+  ]);
+  const [thinking, setThinking] = useState(false);
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  const canUseAi = Boolean(AI_API_BASE && AI_API_BASE.trim().length > 0);
+  const apiUrl = useMemo(() => (AI_API_BASE ? `${AI_API_BASE.replace(/\/$/, "")}/api/chat` : ""), []);
+
+  useEffect(() => {
+    if (!listRef.current) return;
+    listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [messages, thinking]);
+
+  async function sendToAi(text: string) {
+    if (!canUseAi) {
+      setMessages((m) => [
+        ...m,
+        {
+          id: safeId(),
+          role: "assistant",
+          content:
+            "Para ativar o chat com IA de verdade (nível empresa grande), você precisa publicar o backend seguro (Worker) e colocar a URL em `AI_API_BASE`. Enquanto isso, posso te encaminhar pro WhatsApp com a mensagem pronta.",
+        },
+      ]);
+      return;
+    }
+
+    setThinking(true);
+    try {
+      const res = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [
+            { role: "system", content: "Você é um assistente de uma contabilidade brasileira. Responda em pt-BR, com clareza, sem prometer nada ilegal, e sugira contato humano quando necessário." },
+            ...messages.map((m) => ({ role: m.role, content: m.content })),
+            { role: "user", content: text },
+          ],
+        }),
+      });
+
+      if (!res.ok) throw new Error("bad_status");
+      const json = (await res.json()) as { reply?: string };
+      const reply = (json.reply || "").trim();
+      setMessages((m) => [
+        ...m,
+        {
+          id: safeId(),
+          role: "assistant",
+          content: reply || "Não consegui responder agora. Pode me chamar no WhatsApp que te atendemos rapidinho.",
+        },
+      ]);
+    } catch {
+      setMessages((m) => [
+        ...m,
+        {
+          id: safeId(),
+          role: "assistant",
+          content: "Tive um erro ao consultar a IA. Tente novamente em instantes ou fale com a JB no WhatsApp.",
+        },
+      ]);
+    } finally {
+      setThinking(false);
+    }
+  }
+
+  async function onSend() {
+    const text = inputValue.trim();
+    if (!text || thinking) return;
+    setInputValue("");
+    setMessages((m) => [...m, { id: safeId(), role: "user", content: text }]);
+    await sendToAi(text);
+  }
 
   return (
     <section id="chat" className="py-28 relative overflow-hidden" style={{ background: "#043a49" }}>
@@ -391,26 +545,69 @@ function ChatSection() {
                 <span className="text-green-400/80 text-xs">Online</span>
               </div>
             </div>
-            <div className="p-6 space-y-2">
-              <p className="text-white/40 text-xs text-center mb-4">Pergunte-me qualquer coisa sobre a sua contabilidade</p>
-              {suggestions.map((s, i) => (
-                <button
-                  key={i}
-                  className="w-full text-left px-4 py-3.5 rounded-2xl text-sm flex items-center gap-3 transition-all duration-200"
-                  style={{
-                    background: hovered === i ? `${ACCENT}20` : "rgba(255,255,255,0.05)",
-                    border: `1px solid ${hovered === i ? `${ACCENT}50` : "rgba(255,255,255,0.08)"}`,
-                    color: hovered === i ? "#a7f3ec" : "rgba(255,255,255,0.65)",
-                    transform: hovered === i ? "translateX(4px)" : "none",
-                  }}
-                  onMouseEnter={() => setHovered(i)}
-                  onMouseLeave={() => setHovered(null)}
-                  onClick={() => setInputValue(s)}
-                >
-                  <ChevronRight className="w-4 h-4 flex-shrink-0" style={{ color: hovered === i ? ACCENT : "rgba(255,255,255,0.3)" }} />
-                  {s}
-                </button>
-              ))}
+            <div className="px-6 pt-6 pb-4">
+              <div
+                ref={listRef}
+                className="space-y-3 max-h-[320px] overflow-y-auto pr-1"
+                style={{ scrollbarWidth: "thin" }}
+              >
+                {messages.map((m) => (
+                  <div
+                    key={m.id}
+                    className="text-sm leading-relaxed"
+                    style={{
+                      display: "flex",
+                      justifyContent: m.role === "user" ? "flex-end" : "flex-start",
+                    }}
+                  >
+                    <div
+                      className="px-4 py-3 rounded-2xl border"
+                      style={{
+                        maxWidth: "92%",
+                        background: m.role === "user" ? "rgba(42,157,143,0.22)" : "rgba(255,255,255,0.07)",
+                        borderColor: m.role === "user" ? "rgba(42,157,143,0.35)" : "rgba(255,255,255,0.10)",
+                        color: m.role === "user" ? "rgba(255,255,255,0.92)" : "rgba(255,255,255,0.78)",
+                        borderBottomRightRadius: m.role === "user" ? "8px" : undefined,
+                        borderBottomLeftRadius: m.role === "assistant" ? "8px" : undefined,
+                      }}
+                    >
+                      {m.content}
+                    </div>
+                  </div>
+                ))}
+                {thinking && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: "rgba(255,255,255,0.45)" }} />
+                    <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: "rgba(255,255,255,0.35)", animationDelay: "120ms" }} />
+                    <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: "rgba(255,255,255,0.25)", animationDelay: "240ms" }} />
+                    <span className="text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>
+                      Pensando…
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-2">
+                {suggestions.map((s, i) => (
+                  <button
+                    key={i}
+                    className="w-full text-left px-4 py-3 rounded-2xl text-sm flex items-center gap-3 transition-all duration-200"
+                    style={{
+                      background: hovered === i ? `${ACCENT}20` : "rgba(255,255,255,0.05)",
+                      border: `1px solid ${hovered === i ? `${ACCENT}50` : "rgba(255,255,255,0.08)"}`,
+                      color: hovered === i ? "#a7f3ec" : "rgba(255,255,255,0.65)",
+                      transform: hovered === i ? "translateX(4px)" : "none",
+                    }}
+                    onMouseEnter={() => setHovered(i)}
+                    onMouseLeave={() => setHovered(null)}
+                    onClick={() => setInputValue(s)}
+                    type="button"
+                  >
+                    <ChevronRight className="w-4 h-4 flex-shrink-0" style={{ color: hovered === i ? ACCENT : "rgba(255,255,255,0.3)" }} />
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="px-6 pb-6">
               <div className="flex items-center gap-3 rounded-2xl px-4 py-3" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)" }}>
@@ -419,20 +616,37 @@ function ChatSection() {
                   placeholder="Digite sua pergunta contábil..."
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") onSend();
+                  }}
                   className="flex-1 bg-transparent text-white placeholder-white/30 text-sm outline-none"
                 />
-                <a
-                  href={inputValue ? `${WHATSAPP_URL}?text=${encodeURIComponent(inputValue)}` : WHATSAPP_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  type="button"
+                  onClick={onSend}
                   className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-all hover:scale-110"
                   style={{ background: ACCENT }}
                 >
                   <Send className="w-4 h-4 text-white" />
-                </a>
+                </button>
               </div>
               <p className="text-white/25 text-[11px] text-center mt-3">
-                Ao enviar, você será redirecionado para o WhatsApp da JB Contabilidade
+                {canUseAi ? (
+                  <>
+                    Preferiu humano?{" "}
+                    <a className="underline" href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer" style={{ color: ACCENT }}>
+                      Fale no WhatsApp
+                    </a>
+                  </>
+                ) : (
+                  <>
+                    Chat IA ainda não publicado. Enquanto isso,{" "}
+                    <a className="underline" href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer" style={{ color: ACCENT }}>
+                      fale no WhatsApp
+                    </a>
+                    .
+                  </>
+                )}
               </p>
             </div>
           </div>
@@ -575,6 +789,33 @@ function FloatingButtons() {
   );
 }
 
+/* ─── Central Contact Button (modern) ────────────────────────── */
+function CentralContactButton({ onClick }: { onClick: () => void }) {
+  return (
+    <div className="fixed left-0 right-0 bottom-5 z-50 flex justify-center px-4 pointer-events-none">
+      <button
+        type="button"
+        onClick={onClick}
+        className="pointer-events-auto rounded-full px-6 py-4 font-bold text-sm flex items-center gap-3 shadow-2xl transition-all hover:scale-[1.03] active:scale-[0.99]"
+        style={{
+          background: `linear-gradient(135deg, ${ACCENT} 0%, #1aa38f 45%, ${BRAND_DARK} 120%)`,
+          color: "white",
+          boxShadow: "0 18px 50px rgba(4,58,73,0.35)",
+          border: "1px solid rgba(255,255,255,0.20)",
+          backdropFilter: "blur(10px)",
+        }}
+        aria-label="Fale Conosco"
+      >
+        <MessageCircle className="w-5 h-5" />
+        Fale Conosco
+        <span className="text-white/70 font-semibold" style={{ fontSize: 12 }}>
+          (formulário)
+        </span>
+      </button>
+    </div>
+  );
+}
+
 /* ─── Root ───────────────────────────────────────────────────── */
 export default function App() {
   const [contactOpen, setContactOpen] = useState(false);
@@ -582,7 +823,7 @@ export default function App() {
   return (
     <div className="font-sans antialiased" style={{ fontFamily: "Inter, sans-serif" }}>
       {contactOpen && <ContactModal onClose={() => setContactOpen(false)} />}
-      <NavBar onContactClick={() => setContactOpen(true)} />
+      <NavBar />
       <HeroSection />
       <WhySection />
       <ChatSection />
@@ -590,6 +831,7 @@ export default function App() {
       <CTASection />
       <Footer />
       <FloatingButtons />
+      <CentralContactButton onClick={() => setContactOpen(true)} />
     </div>
   );
 }
